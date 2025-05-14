@@ -294,7 +294,8 @@ async function main() {
     // the screenshot changing the DOM temporarily and not being stable yet.
     await delay(100)
 
-    if (pageNav.page > totalContentPages) {
+    // last page reached, minus 1 cuz it can't go to last page for some reason
+    if (pageNav.page >= (totalContentPages - 1)) {
       break
     }
 
@@ -337,7 +338,7 @@ async function main() {
         break
       }
 
-      if (pageNav.page >= totalContentPages) {
+      if (pageNav.page >= (totalContentPages - 1)) {
         break
       }
 
