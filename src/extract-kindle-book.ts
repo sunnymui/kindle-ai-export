@@ -130,28 +130,57 @@ async function main() {
   // await page.waitForURL('**/signin')
 
   async function updateSettings() {
-    await page.locator('ion-button[title="Reader settings"]').click()
+    await page.locator('ion-button[aria-label="Reader settings"]').click()
     await delay(1000)
 
     // Change font to Amazon Ember
     await page.locator('#AmazonEmber').click()
+    await delay(500)
 
     // Change layout to single column
-    await page
-      .locator('[role="radiogroup"][aria-label$=" columns"]', {
-        hasText: 'Single Column'
-      })
-      .click()
+    // Target the actual radio button label for "Single Column" within the columns radiogroup
+    const columnsGroup = page.locator(
+      '[role="radiogroup"][aria-label$=" columns"], [role="radiogroup"][aria-label$=" column"]'
+    )
+    const singleColumnOption = columnsGroup.locator(
+      'ion-radio, ion-segment-button, [role="radio"]',
+      { hasText: /single/i }
+    )
 
-    await page.locator('ion-button[title="Reader settings"]').click()
+    // Fall back to broader selector if the specific one isn't found
+    if ((await singleColumnOption.count()) > 0) {
+      await singleColumnOption.first().click()
+    } else {
+      // Try clicking by text directly
+      const fallback = page.locator(
+        '[role="radiogroup"] :text-is("Single Column"), [role="radiogroup"] :text("Single")'
+      )
+      if ((await fallback.count()) > 0) {
+        await fallback.first().click()
+      }
+    }
+    await delay(500)
+
+    // Close the settings panel - try multiple possible selectors
+    const closeButton = page.locator(
+      'ion-button[aria-label="Reader settings"], ion-button[title="Reader settings"], ion-button[aria-label="Close"], .settings-close-button, ion-buttons ion-button[slot="start"]'
+    )
+    if ((await closeButton.count()) > 0) {
+      await closeButton.first().click()
+    } else {
+      // Press Escape as a fallback to close the settings panel
+      await page.keyboard.press('Escape')
+    }
     await delay(1000)
   }
 
   async function goToPage(pageNumber: number) {
     await delay(1000)
-    await page.locator('#reader-header').hover({ force: true })
+    // Hover over the header area to reveal the menu
+    const header = page.locator('#reader-header, .top-chrome, ion-header').first()
+    await header.hover({ force: true })
     await delay(200)
-    await page.locator('ion-button[title="Reader menu"]').click()
+    await page.locator('ion-button[aria-label="Reader menu"], ion-button[title="Reader menu"]').first().click()
     await delay(1000)
     await page
       .locator('ion-item[role="listitem"]', { hasText: 'Go to Page' })
@@ -167,26 +196,43 @@ async function main() {
   }
 
   async function getPageNav() {
-    const footerText = await page
-      .locator('ion-footer ion-title')
-      .first()
-      .textContent()
-    return parsePageNav(footerText)
+    // Try multiple selectors for the page/location footer
+    const footerLocator = page.locator('ion-footer ion-title, ion-footer .page-info, ion-footer [class*="page"], #kr-footer-page-info, [class*="footer"] [class*="page-count"]')
+    try {
+      const footerText = await footerLocator.first().textContent({ timeout: 5000 })
+      return parsePageNav(footerText)
+    } catch {
+      console.warn('Could not read page nav from footer')
+      return undefined
+    }
   }
 
   async function ensureFixedHeaderUI() {
-    await page.locator('.top-chrome').evaluate((el) => {
-      el.style.transition = 'none'
-      el.style.transform = 'none'
-    })
+    try {
+      await page.locator('.top-chrome').waitFor({ timeout: 10_000 })
+      await page.locator('.top-chrome').evaluate((el) => {
+        el.style.transition = 'none'
+        el.style.transform = 'none'
+      })
+    } catch {
+      console.warn('Could not fix header UI, continuing...')
+    }
   }
 
   async function dismissPossibleAlert() {
-    const $alertNo = page.locator('ion-alert button', { hasText: 'No' })
-    if (await $alertNo.isVisible()) {
-      $alertNo.click()
+    try {
+      const $alertNo = page.locator('ion-alert button', { hasText: 'No' })
+      if (await $alertNo.isVisible({ timeout: 2000 })) {
+        await $alertNo.click()
+      }
+    } catch {
+      // No alert to dismiss
     }
   }
+
+  // Wait for the reader to fully load before interacting
+  await page.locator(krRendererMainImageSelector).waitFor({ timeout: 30_000 })
+  await delay(2000)
 
   await dismissPossibleAlert()
   await ensureFixedHeaderUI()
@@ -194,7 +240,7 @@ async function main() {
 
   const initialPageNav = await getPageNav()
 
-  await page.locator('ion-button[title="Table of Contents"]').click()
+  await page.locator('ion-button[aria-label="Table of Contents"], ion-button[title="Table of Contents"]').first().click()
   await delay(1000)
 
   const $tocItems = await page.locator('ion-list ion-item').all()
@@ -246,7 +292,13 @@ async function main() {
   )
   assert(totalContentPages > 0, 'No content pages found')
 
-  await page.locator('.side-menu-close-button').click()
+  // Close the TOC side menu
+  const sideMenuClose = page.locator('.side-menu-close-button, ion-button[aria-label="Close"], ion-button[aria-label="Close Table of Contents"], ion-menu ion-button, .menu-close-button')
+  if ((await sideMenuClose.count()) > 0) {
+    await sideMenuClose.first().click()
+  } else {
+    await page.keyboard.press('Escape')
+  }
   await delay(1000)
 
   const pages: Array<PageChunk> = []
@@ -300,13 +352,13 @@ async function main() {
     }
 
     let retries = 0
+    const maxRetries = 50
 
     // Occasionally the next page button doesn't work, so ensure that the main
     // image src actually changes before continuing.
     do {
       try {
         // Navigate to the next page
-        // await delay(100)
         if (retries % 10 === 0) {
           if (retries > 0) {
             console.warn('retrying...', {
@@ -316,12 +368,18 @@ async function main() {
             })
           }
 
-          // Click the next page button
-          await page
-            .locator('.kr-chevron-container-right')
-            .click({ timeout: 1000 })
+          // Click the next page button (try multiple selectors)
+          const nextBtn = page.locator('.kr-chevron-container-right, .kr-right-chevron, [class*="chevron-right"], [class*="chevron"][class*="right"], [aria-label="Next Page"], [aria-label="Next page"]')
+          if ((await nextBtn.count()) > 0) {
+            await nextBtn.first().click({ timeout: 1000 })
+          } else {
+            // Fallback: use keyboard arrow to navigate
+            await page.keyboard.press('ArrowRight')
+          }
+        } else if (retries % 5 === 0) {
+          // Every 5 retries, try keyboard navigation as an alternative
+          await page.keyboard.press('ArrowRight')
         }
-        // await delay(500)
       } catch (err: any) {
         // No next page to navigate to
         console.warn(
@@ -345,6 +403,14 @@ async function main() {
       await delay(100)
 
       ++retries
+      if (retries >= maxRetries) {
+        console.warn('max retries reached, moving on...', {
+          src,
+          retries,
+          ...pages.at(-1)
+        })
+        break
+      }
     } while (true)
   } while (true)
 

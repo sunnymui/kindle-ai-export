@@ -15,6 +15,9 @@
   },
   "type": "module",
   "scripts": {
+    "extract": "tsx src/extract-kindle-book.ts",
+    "export:markdown": "tsx src/export-book-markdown.ts",
+    "transcribe": "tsx src/transcribe-book-content.ts",
     "test": "run-s test:*",
     "test:format": "prettier --check \"**/*.{js,ts,tsx}\"",
     "test:lint": "eslint .",
@@ -51,6 +54,7 @@
     "npm-run-all2": "^6.2.2",
     "only-allow": "^1.2.1",
     "prettier": "^3.3.3",
+    "tsx": "^4.21.0",
     "typescript": "^5.6.3",
     "vitest": "2.1.2"
   }

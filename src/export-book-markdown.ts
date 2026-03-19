@@ -23,7 +23,7 @@ async function main() {
   assert(metadata.toc?.length, 'invalid book metadata: missing toc')
 
   const title = metadata.meta.title
-  const authors = metadata.meta.authorList
+  const authors = metadata.meta.authorList ?? []
 
   let lastTocItemIndex = 0
   for (let i = 0, index = 0; i < metadata.toc.length - 1; i++) {
@@ -41,7 +41,7 @@ async function main() {
 
   let output = `# ${title}
 
-By ${authors.join(', ')}
+${authors.length ? `By ${authors.join(', ')}` : ''}
 
 ---
 
